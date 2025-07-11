@@ -9,9 +9,9 @@
     <script src="https://cdn.tailwindcss.com"></script>
     
     <!-- FullCalendar CSS and JS -->
-    <link href='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/main.min.css' rel='stylesheet' />
-    <script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/main.min.js'></script>
-    <script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/locales/ru.js'></script>
+    <link href='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.css' rel='stylesheet' />
+    <script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.js'></script>
+    <script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/locales/ru.global.min.js'></script>
     
     <!-- Tabulator CSS and JS -->
     <link href="https://unpkg.com/tabulator-tables@5.5.0/dist/css/tabulator.min.css" rel="stylesheet">
@@ -95,9 +95,14 @@
             <div class="bg-white rounded-lg shadow-md p-6">
                 <div class="flex justify-between items-center mb-4">
                     <h2 class="text-2xl font-bold text-gray-800">Календарь занятий</h2>
-                    <button id="addLessonBtn" class="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors">
-                        Добавить занятие
-                    </button>
+                    <div class="flex gap-2">
+                        <button id="updateStatusBtn" class="px-4 py-2 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors">
+                            Обновить статусы
+                        </button>
+                        <button id="addLessonBtn" class="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors">
+                            Добавить занятие
+                        </button>
+                    </div>
                 </div>
                 <div id="calendar"></div>
             </div>
@@ -144,6 +149,9 @@
                 <div class="mb-4">
                     <label class="block text-sm font-medium text-gray-700 mb-2">Время</label>
                     <input type="time" id="lessonTime" class="w-full p-2 border border-gray-300 rounded-md">
+                </div>
+                <div id="timeConflictWarning" class="mb-4 p-3 bg-yellow-100 border border-yellow-300 text-yellow-700 rounded-md hidden">
+                    <strong>Предупреждение:</strong> На выбранное время уже запланировано занятие. Вы можете добавить только отмененное занятие.
                 </div>
                 <div class="mb-4">
                     <label class="block text-sm font-medium text-gray-700 mb-2">Статус</label>
@@ -192,6 +200,10 @@
                 <div class="mb-4">
                     <label class="block text-sm font-medium text-gray-700 mb-2">Оплаченные занятия</label>
                     <input type="number" id="studentPaidLessons" class="w-full p-2 border border-gray-300 rounded-md" min="0" step="1">
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Баланс (руб.)</label>
+                    <input type="number" id="studentBalance" class="w-full p-2 border border-gray-300 rounded-md" min="0" step="0.01" placeholder="Рассчитается автоматически">
                 </div>
                 <div class="flex gap-4">
                     <button type="submit" class="flex-1 px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors">
@@ -252,7 +264,9 @@
             initializeStudentsTable();
             initializePaymentsTable();
             initializeEventListeners();
+            initializeBalances();
             updatePaymentNotifications();
+            updatePastLessonsStatus();
         });
         
         // Tab Management
@@ -313,6 +327,7 @@
                     {title: "Контакты", field: "contact", editor: "input"},
                     {title: "Стоимость занятия", field: "rate", editor: "number", formatter: "money"},
                     {title: "Оплаченные занятия", field: "paidLessons", editor: "number"},
+                    {title: "Баланс (руб.)", field: "balance", formatter: "money", cssClass: "text-right"},
                     {title: "Действия", formatter: function(cell, formatterParams, onRendered) {
                         return '<button class="px-2 py-1 bg-red-500 text-white rounded text-sm" onclick="deleteStudent(' + cell.getRow().getData().id + ')">Удалить</button>';
                     }}
@@ -328,6 +343,8 @@
                 columns: [
                     {title: "Ученик", field: "studentName"},
                     {title: "Оплаченные занятия", field: "paidLessons"},
+                    {title: "Баланс (руб.)", field: "balance", formatter: "money"},
+                    {title: "Осталось занятий", field: "lessonsLeft"},
                     {title: "Статус", field: "status", formatter: function(cell, formatterParams, onRendered) {
                         const value = cell.getValue();
                         const color = value === 'Требуется оплата' ? 'text-red-600' : 'text-green-600';
@@ -350,6 +367,7 @@
             
             // Lesson management
             document.getElementById('addLessonBtn').addEventListener('click', () => showLessonModal());
+            document.getElementById('updateStatusBtn').addEventListener('click', manualUpdatePastLessons);
             document.getElementById('lessonForm').addEventListener('submit', saveLessonForm);
             document.getElementById('cancelLessonBtn').addEventListener('click', hideLessonModal);
             document.getElementById('deleteLessonBtn').addEventListener('click', deleteLesson);
@@ -391,6 +409,16 @@
                 document.getElementById('deleteLessonBtn').style.display = 'none';
             }
             
+            // Добавляем обработчики для проверки конфликтов времени
+            const dateInput = document.getElementById('lessonDate');
+            const timeInput = document.getElementById('lessonTime');
+            const statusInput = document.getElementById('lessonStatus');
+            
+            [dateInput, timeInput, statusInput].forEach(input => {
+                input.addEventListener('input', checkTimeConflict);
+                input.addEventListener('change', checkTimeConflict);
+            });
+            
             document.getElementById('lessonModal').classList.add('active');
         }
         
@@ -414,6 +442,21 @@
                 return;
             }
             
+            // Проверяем конфликт времени (только для статусов кроме "отменено")
+            if (status !== 'cancelled') {
+                const conflictingLesson = appData.lessons.find(l => 
+                    l.date === date && 
+                    l.time === time && 
+                    l.status !== 'cancelled' && 
+                    l.id !== currentLessonId
+                );
+                
+                if (conflictingLesson) {
+                    alert(`Конфликт времени! На ${date} в ${time} уже запланировано занятие с ${conflictingLesson.studentName}. Вы можете поставить занятие в это время только со статусом "Отменено".`);
+                    return;
+                }
+            }
+            
             const lessonData = {
                 id: currentLessonId || Date.now(),
                 studentId: studentId,
@@ -427,13 +470,32 @@
             if (currentLessonId) {
                 // Update existing lesson
                 const index = appData.lessons.findIndex(l => l.id === currentLessonId);
+                const oldLesson = appData.lessons[index];
+                
+                // Проверяем изменение статуса
+                if (oldLesson.status !== 'completed' && lessonData.status === 'completed') {
+                    // Списываем деньги при изменении статуса на "проведено"
+                    deductLessonCost(studentId);
+                } else if (oldLesson.status === 'completed' && lessonData.status !== 'completed') {
+                    // Возвращаем деньги если статус изменился с "проведено"
+                    refundLessonCost(studentId);
+                }
+                
                 appData.lessons[index] = lessonData;
             } else {
                 // Add new lesson
                 appData.lessons.push(lessonData);
+                
+                // Списываем деньги если новое занятие сразу помечено как проведенное
+                if (lessonData.status === 'completed') {
+                    deductLessonCost(studentId);
+                }
             }
             
             updateCalendarEvents();
+            studentsTable.setData(appData.students);
+            updatePaymentsTable();
+            updatePaymentNotifications();
             hideLessonModal();
         }
         
@@ -491,6 +553,7 @@
                     document.getElementById('studentContact').value = student.contact;
                     document.getElementById('studentRate').value = student.rate;
                     document.getElementById('studentPaidLessons').value = student.paidLessons;
+                    document.getElementById('studentBalance').value = student.balance || (student.rate * student.paidLessons);
                 }
             } else {
                 document.getElementById('studentForm').reset();
@@ -511,13 +574,15 @@
             const contact = document.getElementById('studentContact').value;
             const rate = parseFloat(document.getElementById('studentRate').value) || 0;
             const paidLessons = parseInt(document.getElementById('studentPaidLessons').value) || 0;
+            const balance = parseFloat(document.getElementById('studentBalance').value) || (rate * paidLessons);
             
             const studentData = {
                 id: currentStudentId || Date.now(),
                 name: name,
                 contact: contact,
                 rate: rate,
-                paidLessons: paidLessons
+                paidLessons: paidLessons,
+                balance: balance
             };
             
             if (currentStudentId) {
@@ -587,6 +652,13 @@
             if (student) {
                 student.paidLessons += lessons;
                 
+                // Обновляем баланс
+                if (student.balance === undefined) {
+                    student.balance = student.rate * student.paidLessons;
+                } else {
+                    student.balance += amount;
+                }
+                
                 const payment = {
                     id: Date.now(),
                     studentId: currentPaymentStudentId,
@@ -606,12 +678,25 @@
         }
         
         function updatePaymentsTable() {
-            const paymentData = appData.students.map(student => ({
-                studentId: student.id,
-                studentName: student.name,
-                paidLessons: student.paidLessons,
-                status: student.paidLessons < 2 ? 'Требуется оплата' : 'Оплачено'
-            }));
+            const paymentData = appData.students.map(student => {
+                // Инициализируем баланс если его нет
+                if (student.balance === undefined) {
+                    student.balance = student.rate * student.paidLessons;
+                }
+                
+                // Определяем статус на основе баланса
+                const lessonsLeft = Math.floor(student.balance / student.rate);
+                const status = lessonsLeft < 2 ? 'Требуется оплата' : 'Оплачено';
+                
+                return {
+                    studentId: student.id,
+                    studentName: student.name,
+                    paidLessons: student.paidLessons,
+                    balance: student.balance,
+                    lessonsLeft: lessonsLeft,
+                    status: status
+                };
+            });
             
             paymentsTable.setData(paymentData);
         }
@@ -620,15 +705,27 @@
             const notificationsContainer = document.getElementById('payment-notifications');
             notificationsContainer.innerHTML = '';
             
-            const lowBalanceStudents = appData.students.filter(s => s.paidLessons < 2);
+            const lowBalanceStudents = appData.students.filter(s => {
+                // Инициализируем баланс если его нет
+                if (s.balance === undefined) {
+                    s.balance = s.rate * s.paidLessons;
+                }
+                
+                // Проверяем количество оставшихся занятий
+                const lessonsLeft = Math.floor(s.balance / s.rate);
+                return lessonsLeft < 2;
+            });
             
             if (lowBalanceStudents.length > 0) {
                 const notification = document.createElement('div');
                 notification.className = 'notification bg-red-100 border border-red-300 text-red-700 px-4 py-3 rounded-md mb-4';
                 notification.innerHTML = `
-                    <strong>Внимание!</strong> У следующих учеников заканчиваются оплаченные занятия:
+                    <strong>Внимание!</strong> У следующих учеников заканчиваются средства на счету:
                     <ul class="mt-2 list-disc list-inside">
-                        ${lowBalanceStudents.map(s => `<li>${s.name} - осталось ${s.paidLessons} занятий</li>`).join('')}
+                        ${lowBalanceStudents.map(s => {
+                            const lessonsLeft = Math.floor(s.balance / s.rate);
+                            return `<li>${s.name} - осталось ${lessonsLeft} занятий (${s.balance.toFixed(2)} руб.)</li>`;
+                        }).join('')}
                     </ul>
                 `;
                 notificationsContainer.appendChild(notification);
@@ -676,12 +773,23 @@
             const wb = XLSX.utils.book_new();
             
             // Students sheet
-            const studentsData = appData.students.map(student => ({
-                'Имя': student.name,
-                'Контакты': student.contact,
-                'Стоимость занятия': student.rate,
-                'Оплаченные занятия': student.paidLessons
-            }));
+            const studentsData = appData.students.map(student => {
+                // Инициализируем баланс если его нет
+                if (student.balance === undefined) {
+                    student.balance = student.rate * student.paidLessons;
+                }
+                
+                const lessonsLeft = Math.floor(student.balance / student.rate);
+                
+                return {
+                    'Имя': student.name,
+                    'Контакты': student.contact,
+                    'Стоимость занятия': student.rate,
+                    'Оплаченные занятия': student.paidLessons,
+                    'Баланс (руб.)': student.balance,
+                    'Осталось занятий': lessonsLeft
+                };
+            });
             const studentsWs = XLSX.utils.json_to_sheet(studentsData);
             XLSX.utils.book_append_sheet(wb, studentsWs, 'Ученики');
             
@@ -715,6 +823,165 @@
             document.getElementById('lessonModal').classList.remove('active');
             document.getElementById('studentModal').classList.remove('active');
             document.getElementById('paymentModal').classList.remove('active');
+        }
+        
+        // Инициализация баланса для существующих студентов
+        function initializeBalances() {
+            let balanceUpdated = false;
+            
+            appData.students.forEach(student => {
+                if (student.balance === undefined) {
+                    student.balance = student.rate * student.paidLessons;
+                    balanceUpdated = true;
+                }
+            });
+            
+            if (balanceUpdated) {
+                studentsTable.setData(appData.students);
+                updatePaymentsTable();
+                console.log('Баланс инициализирован для существующих студентов');
+            }
+        }
+        
+        // Автоматическое обновление статуса прошедших занятий
+        function updatePastLessonsStatus() {
+            const now = new Date();
+            const currentDate = now.toISOString().split('T')[0];
+            const currentTime = now.toTimeString().split(' ')[0].substring(0, 5);
+            
+            let statusUpdated = false;
+            
+            appData.lessons.forEach(lesson => {
+                if (lesson.status === 'scheduled') {
+                    const lessonDate = lesson.date;
+                    const lessonTime = lesson.time;
+                    
+                    // Проверяем, прошло ли время занятия
+                    if (lessonDate < currentDate || 
+                        (lessonDate === currentDate && lessonTime < currentTime)) {
+                        lesson.status = 'completed';
+                        // Списываем деньги за проведенное занятие
+                        deductLessonCost(lesson.studentId);
+                        statusUpdated = true;
+                    }
+                }
+            });
+            
+            if (statusUpdated) {
+                updateCalendarEvents();
+                studentsTable.setData(appData.students);
+                updatePaymentsTable();
+                updatePaymentNotifications();
+                console.log('Статус прошедших занятий обновлен автоматически');
+            }
+        }
+        
+        // Списание средств за проведенное занятие
+        function deductLessonCost(studentId) {
+            const student = appData.students.find(s => s.id === studentId);
+            if (student) {
+                // Инициализируем баланс если его нет
+                if (student.balance === undefined) {
+                    student.balance = student.rate * student.paidLessons;
+                }
+                
+                // Списываем стоимость занятия
+                student.balance = Math.max(0, student.balance - student.rate);
+                
+                // Уменьшаем количество оплаченных занятий
+                if (student.paidLessons > 0) {
+                    student.paidLessons = Math.max(0, student.paidLessons - 1);
+                }
+                
+                console.log(`Списано ${student.rate} руб. с баланса ${student.name}. Остаток: ${student.balance} руб.`);
+            }
+        }
+        
+        // Возврат средств за отмененное занятие
+        function refundLessonCost(studentId) {
+            const student = appData.students.find(s => s.id === studentId);
+            if (student) {
+                // Инициализируем баланс если его нет
+                if (student.balance === undefined) {
+                    student.balance = student.rate * student.paidLessons;
+                }
+                
+                // Возвращаем стоимость занятия
+                student.balance += student.rate;
+                student.paidLessons += 1;
+                
+                console.log(`Возвращено ${student.rate} руб. на баланс ${student.name}. Остаток: ${student.balance} руб.`);
+            }
+        }
+        
+        // Запускаем проверку каждые 5 минут
+        setInterval(updatePastLessonsStatus, 5 * 60 * 1000);
+        
+        // Ручное обновление статуса прошедших занятий
+        function manualUpdatePastLessons() {
+            const now = new Date();
+            const currentDate = now.toISOString().split('T')[0];
+            const currentTime = now.toTimeString().split(' ')[0].substring(0, 5);
+            
+            let updatedCount = 0;
+            
+            appData.lessons.forEach(lesson => {
+                if (lesson.status === 'scheduled') {
+                    const lessonDate = lesson.date;
+                    const lessonTime = lesson.time;
+                    
+                    // Проверяем, прошло ли время занятия
+                    if (lessonDate < currentDate || 
+                        (lessonDate === currentDate && lessonTime < currentTime)) {
+                        lesson.status = 'completed';
+                        // Списываем деньги за проведенное занятие
+                        deductLessonCost(lesson.studentId);
+                        updatedCount++;
+                    }
+                }
+            });
+            
+            if (updatedCount > 0) {
+                updateCalendarEvents();
+                studentsTable.setData(appData.students);
+                updatePaymentsTable();
+                updatePaymentNotifications();
+                alert(`Обновлено ${updatedCount} занятий. Прошедшие занятия помечены как "Проведено" и средства списаны с баланса.`);
+            } else {
+                alert('Нет занятий для обновления. Все прошедшие занятия уже помечены как "Проведено".');
+            }
+        }
+        
+        // Проверка конфликтов времени в реальном времени
+        function checkTimeConflict() {
+            const date = document.getElementById('lessonDate').value;
+            const time = document.getElementById('lessonTime').value;
+            const status = document.getElementById('lessonStatus').value;
+            const warningEl = document.getElementById('timeConflictWarning');
+            
+            if (!date || !time) {
+                warningEl.classList.add('hidden');
+                return;
+            }
+            
+            // Проверяем только если статус НЕ "отменено"
+            if (status !== 'cancelled') {
+                const conflictingLesson = appData.lessons.find(l => 
+                    l.date === date && 
+                    l.time === time && 
+                    l.status !== 'cancelled' && 
+                    l.id !== currentLessonId
+                );
+                
+                if (conflictingLesson) {
+                    warningEl.classList.remove('hidden');
+                    warningEl.innerHTML = `<strong>Предупреждение:</strong> На ${date} в ${time} уже запланировано занятие с <strong>${conflictingLesson.studentName}</strong>. Вы можете добавить только отмененное занятие.`;
+                } else {
+                    warningEl.classList.add('hidden');
+                }
+            } else {
+                warningEl.classList.add('hidden');
+            }
         }
     </script>
 </body>
