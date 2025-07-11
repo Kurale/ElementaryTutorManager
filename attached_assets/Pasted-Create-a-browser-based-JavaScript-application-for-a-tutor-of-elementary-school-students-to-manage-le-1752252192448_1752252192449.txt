@@ -1,0 +1,51 @@
+Create a browser-based JavaScript application for a tutor of elementary school students to manage lessons, payments, and student information, with the entire interface in Russian. The app should run in Replit and use modern JavaScript, HTML, and Tailwind CSS for styling. Include the following features:
+
+1. **Tabbed Interface**: Organize the app into three tabs with a clean, responsive tabbed navigation, all labels in Russian:
+   - **Календарь**: Display an editable calendar using FullCalendar.js to schedule and track lessons. Each lesson should have a title, date, time, student name, and status (e.g., "Запланировано", "Проведено", "Отменено"). Allow adding, editing, and deleting lessons.
+   - **Ученики**: Display an editable list of students using a table (e.g., Tabulator.js). Columns should include student name, contact info, lesson rate, and payment status (e.g., "Оплачено", "Ожидает оплаты"). Allow adding, editing, and deleting students.
+   - **Оплаты**: Track payments with a table showing student name, number of paid lessons, payment due date, and a notification if the number of paid lessons falls below a threshold (e.g., 2 lessons). Allow manual updates to payment records.
+
+2. **Calendar Features**:
+   - Use FullCalendar.js for a monthly view with drag-and-drop support for rescheduling lessons.
+   - Clicking a lesson opens a modal to edit details (student, date, time, status), with all fields and buttons labeled in Russian (e.g., "Сохранить", "Отмена").
+   - Color-code lessons by status (e.g., green for "Проведено", yellow for "Запланировано", red for "Отменено").
+
+3. **Student Management**:
+   - Store student data (name, contact, lesson rate) in a JavaScript object or array.
+   - Use Tabulator.js to display and edit student data in a table with inline editing, with column headers in Russian (e.g., "Имя", "Контакты", "Стоимость занятия").
+   - Add a form to add new students, with fields and buttons labeled in Russian (e.g., "Добавить ученика").
+
+4. **Payment Tracking**:
+   - Track the number of paid lessons per student and calculate payment due dates (e.g., due when paid lessons < 2).
+   - Show notifications in the Оплаты tab for students with low paid lesson counts, with messages in Russian (e.g., "Осталось мало оплаченных занятий").
+   - Allow manual updates to payment records (e.g., mark lessons as paid), with buttons like "Добавить оплату".
+
+5. **Data Persistence**:
+   - Save all data (lessons, students, payments) to a JSON object.
+   - Implement a "Сохранить" button to download the JSON file and a "Загрузить" button to upload a JSON file for restoring progress.
+
+6. **Excel Export**:
+   - Use SheetJS to export student and payment data to an Excel file (.xlsx) with separate sheets labeled in Russian (e.g., "Ученики", "Оплаты").
+   - Include a button labeled "Экспорт в Excel" to trigger the export.
+
+7. **Dependencies**:
+   - Use CDN-hosted libraries: Tailwind CSS, FullCalendar.js, Tabulator.js, and SheetJS.
+   - Ensure the app is a single-page HTML file with embedded JavaScript and CSS.
+
+8. **UI/UX**:
+   - Use Tailwind CSS for a clean, responsive design optimized for desktop and tablet.
+   - Ensure tabs are easy to navigate with clear Russian labels (e.g., "Календарь", "Ученики", "Оплаты") and a consistent layout.
+   - Add modals for editing lessons and students with Russian text to avoid clutter.
+   - Include tooltips or help text in Russian for key actions (e.g., "Нажмите, чтобы изменить занятие").
+
+9. **Technical Requirements**:
+   - Use modern JavaScript (ES6+) with async/await for file handling.
+   - Structure the code with separate functions for calendar, student, and payment logic.
+   - Avoid external server dependencies; all data should be stored client-side.
+   - Test the app in Replit’s browser preview to ensure compatibility.
+   - Ensure all interface text, including buttons, labels, modals, and notifications, is in Russian.
+
+Deliverables:
+- A single `index.html` file containing HTML, JavaScript, and Tailwind CSS.
+- Inline comments explaining key sections of the code in English for clarity.
+- A simple README in the Replit project, written in Russian, explaining how to use the app (e.g., how to navigate tabs, save/load JSON, export to Excel).
