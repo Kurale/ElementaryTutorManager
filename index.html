@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Система управления уроками</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- FullCalendar CSS and JS -->
+    <link href='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/main.min.css' rel='stylesheet' />
+    <script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/main.min.js'></script>
+    <script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/locales/ru.js'></script>
+    
+    <!-- Tabulator CSS and JS -->
+    <link href="https://unpkg.com/tabulator-tables@5.5.0/dist/css/tabulator.min.css" rel="stylesheet">
+    <script src="https://unpkg.com/tabulator-tables@5.5.0/dist/js/tabulator.min.js"></script>
+    
+    <!-- SheetJS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    
+    <style>
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        .tab-button.active {
+            background-color: #3b82f6;
+            color: white;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+        }
+        .modal.active {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .notification {
+            animation: fadeIn 0.3s ease-in-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 font-sans">
+    <div class="container mx-auto px-4 py-8">
+        <h1 class="text-3xl font-bold text-gray-800 mb-8 text-center">Система управления уроками</h1>
+        
+        <!-- Tab Navigation -->
+        <div class="flex justify-center mb-8">
+            <div class="bg-white rounded-lg shadow-md p-2">
+                <button class="tab-button active px-6 py-3 rounded-md font-medium transition-colors duration-200 mr-2" data-tab="calendar">
+                    Календарь
+                </button>
+                <button class="tab-button px-6 py-3 rounded-md font-medium transition-colors duration-200 mr-2" data-tab="students">
+                    Ученики
+                </button>
+                <button class="tab-button px-6 py-3 rounded-md font-medium transition-colors duration-200" data-tab="payments">
+                    Оплаты
+                </button>
+            </div>
+        </div>
+        
+        <!-- Data Management Controls -->
+        <div class="flex justify-center mb-8">
+            <div class="bg-white rounded-lg shadow-md p-4 flex flex-wrap gap-4">
+                <button id="saveDataBtn" class="px-4 py-2 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors">
+                    Сохранить данные
+                </button>
+                <label class="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors cursor-pointer">
+                    Загрузить данные
+                    <input type="file" id="loadDataBtn" accept=".json" class="hidden">
+                </label>
+                <button id="exportExcelBtn" class="px-4 py-2 bg-purple-500 text-white rounded-md hover:bg-purple-600 transition-colors">
+                    Экспорт в Excel
+                </button>
+            </div>
+        </div>
+        
+        <!-- Calendar Tab -->
+        <div id="calendar-tab" class="tab-content active">
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-2xl font-bold text-gray-800">Календарь занятий</h2>
+                    <button id="addLessonBtn" class="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors">
+                        Добавить занятие
+                    </button>
+                </div>
+                <div id="calendar"></div>
+            </div>
+        </div>
+        
+        <!-- Students Tab -->
+        <div id="students-tab" class="tab-content">
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-2xl font-bold text-gray-800">Список учеников</h2>
+                    <button id="addStudentBtn" class="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors">
+                        Добавить ученика
+                    </button>
+                </div>
+                <div id="students-table"></div>
+            </div>
+        </div>
+        
+        <!-- Payments Tab -->
+        <div id="payments-tab" class="tab-content">
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <h2 class="text-2xl font-bold text-gray-800 mb-4">Оплаты</h2>
+                <div id="payment-notifications" class="mb-4"></div>
+                <div id="payments-table"></div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Lesson Modal -->
+    <div id="lessonModal" class="modal">
+        <div class="bg-white rounded-lg shadow-lg p-6 w-full max-w-md">
+            <h3 class="text-xl font-bold mb-4">Занятие</h3>
+            <form id="lessonForm">
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Ученик</label>
+                    <select id="lessonStudent" class="w-full p-2 border border-gray-300 rounded-md">
+                        <option value="">Выберите ученика</option>
+                    </select>
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Дата</label>
+                    <input type="date" id="lessonDate" class="w-full p-2 border border-gray-300 rounded-md">
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Время</label>
+                    <input type="time" id="lessonTime" class="w-full p-2 border border-gray-300 rounded-md">
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Статус</label>
+                    <select id="lessonStatus" class="w-full p-2 border border-gray-300 rounded-md">
+                        <option value="scheduled">Запланировано</option>
+                        <option value="completed">Проведено</option>
+                        <option value="cancelled">Отменено</option>
+                    </select>
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Заметки</label>
+                    <textarea id="lessonNotes" class="w-full p-2 border border-gray-300 rounded-md" rows="3"></textarea>
+                </div>
+                <div class="flex gap-4">
+                    <button type="submit" class="flex-1 px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors">
+                        Сохранить
+                    </button>
+                    <button type="button" id="cancelLessonBtn" class="flex-1 px-4 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600 transition-colors">
+                        Отмена
+                    </button>
+                    <button type="button" id="deleteLessonBtn" class="px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors">
+                        Удалить
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <!-- Student Modal -->
+    <div id="studentModal" class="modal">
+        <div class="bg-white rounded-lg shadow-lg p-6 w-full max-w-md">
+            <h3 class="text-xl font-bold mb-4">Ученик</h3>
+            <form id="studentForm">
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Имя</label>
+                    <input type="text" id="studentName" class="w-full p-2 border border-gray-300 rounded-md" required>
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Контакты</label>
+                    <input type="text" id="studentContact" class="w-full p-2 border border-gray-300 rounded-md">
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Стоимость занятия</label>
+                    <input type="number" id="studentRate" class="w-full p-2 border border-gray-300 rounded-md" min="0" step="0.01">
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Оплаченные занятия</label>
+                    <input type="number" id="studentPaidLessons" class="w-full p-2 border border-gray-300 rounded-md" min="0" step="1">
+                </div>
+                <div class="flex gap-4">
+                    <button type="submit" class="flex-1 px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors">
+                        Сохранить
+                    </button>
+                    <button type="button" id="cancelStudentBtn" class="flex-1 px-4 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600 transition-colors">
+                        Отмена
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <!-- Payment Modal -->
+    <div id="paymentModal" class="modal">
+        <div class="bg-white rounded-lg shadow-lg p-6 w-full max-w-md">
+            <h3 class="text-xl font-bold mb-4">Добавить оплату</h3>
+            <form id="paymentForm">
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Количество занятий</label>
+                    <input type="number" id="paymentLessons" class="w-full p-2 border border-gray-300 rounded-md" min="1" step="1" required>
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Сумма</label>
+                    <input type="number" id="paymentAmount" class="w-full p-2 border border-gray-300 rounded-md" min="0" step="0.01" required>
+                </div>
+                <div class="flex gap-4">
+                    <button type="submit" class="flex-1 px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors">
+                        Добавить
+                    </button>
+                    <button type="button" id="cancelPaymentBtn" class="flex-1 px-4 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600 transition-colors">
+                        Отмена
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <script>
+        // Application State
+        let appData = {
+            students: [],
+            lessons: [],
+            payments: []
+        };
+        
+        let calendar;
+        let studentsTable;
+        let paymentsTable;
+        let currentLessonId = null;
+        let currentStudentId = null;
+        let currentPaymentStudentId = null;
+        
+        // Initialize Application
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeTabs();
+            initializeCalendar();
+            initializeStudentsTable();
+            initializePaymentsTable();
+            initializeEventListeners();
+            updatePaymentNotifications();
+        });
+        
+        // Tab Management
+        function initializeTabs() {
+            const tabButtons = document.querySelectorAll('.tab-button');
+            const tabContents = document.querySelectorAll('.tab-content');
+            
+            tabButtons.forEach(button => {
+                button.addEventListener('click', function() {
+                    const tabName = this.getAttribute('data-tab');
+                    
+                    // Update active tab button
+                    tabButtons.forEach(btn => btn.classList.remove('active'));
+                    this.classList.add('active');
+                    
+                    // Update active tab content
+                    tabContents.forEach(content => content.classList.remove('active'));
+                    document.getElementById(tabName + '-tab').classList.add('active');
+                    
+                    // Refresh calendar when switching to calendar tab
+                    if (tabName === 'calendar') {
+                        setTimeout(() => calendar.render(), 100);
+                    }
+                });
+            });
+        }
+        
+        // Calendar Initialization
+        function initializeCalendar() {
+            const calendarEl = document.getElementById('calendar');
+            calendar = new FullCalendar.Calendar(calendarEl, {
+                initialView: 'dayGridMonth',
+                locale: 'ru',
+                headerToolbar: {
+                    left: 'prev,next today',
+                    center: 'title',
+                    right: 'dayGridMonth,timeGridWeek,timeGridDay'
+                },
+                editable: true,
+                eventDrop: function(info) {
+                    updateLessonDateTime(info.event.id, info.event.start);
+                },
+                eventClick: function(info) {
+                    editLesson(info.event.id);
+                },
+                events: []
+            });
+            calendar.render();
+        }
+        
+        // Students Table Initialization
+        function initializeStudentsTable() {
+            studentsTable = new Tabulator("#students-table", {
+                data: appData.students,
+                layout: "fitColumns",
+                columns: [
+                    {title: "Имя", field: "name", editor: "input"},
+                    {title: "Контакты", field: "contact", editor: "input"},
+                    {title: "Стоимость занятия", field: "rate", editor: "number", formatter: "money"},
+                    {title: "Оплаченные занятия", field: "paidLessons", editor: "number"},
+                    {title: "Действия", formatter: function(cell, formatterParams, onRendered) {
+                        return '<button class="px-2 py-1 bg-red-500 text-white rounded text-sm" onclick="deleteStudent(' + cell.getRow().getData().id + ')">Удалить</button>';
+                    }}
+                ]
+            });
+        }
+        
+        // Payments Table Initialization
+        function initializePaymentsTable() {
+            paymentsTable = new Tabulator("#payments-table", {
+                data: [],
+                layout: "fitColumns",
+                columns: [
+                    {title: "Ученик", field: "studentName"},
+                    {title: "Оплаченные занятия", field: "paidLessons"},
+                    {title: "Статус", field: "status", formatter: function(cell, formatterParams, onRendered) {
+                        const value = cell.getValue();
+                        const color = value === 'Требуется оплата' ? 'text-red-600' : 'text-green-600';
+                        return `<span class="${color}">${value}</span>`;
+                    }},
+                    {title: "Действия", formatter: function(cell, formatterParams, onRendered) {
+                        const studentId = cell.getRow().getData().studentId;
+                        return `<button class="px-2 py-1 bg-green-500 text-white rounded text-sm" onclick="addPayment(${studentId})">Добавить оплату</button>`;
+                    }}
+                ]
+            });
+        }
+        
+        // Event Listeners
+        function initializeEventListeners() {
+            // Data management
+            document.getElementById('saveDataBtn').addEventListener('click', saveData);
+            document.getElementById('loadDataBtn').addEventListener('change', loadData);
+            document.getElementById('exportExcelBtn').addEventListener('click', exportToExcel);
+            
+            // Lesson management
+            document.getElementById('addLessonBtn').addEventListener('click', () => showLessonModal());
+            document.getElementById('lessonForm').addEventListener('submit', saveLessonForm);
+            document.getElementById('cancelLessonBtn').addEventListener('click', hideLessonModal);
+            document.getElementById('deleteLessonBtn').addEventListener('click', deleteLesson);
+            
+            // Student management
+            document.getElementById('addStudentBtn').addEventListener('click', () => showStudentModal());
+            document.getElementById('studentForm').addEventListener('submit', saveStudentForm);
+            document.getElementById('cancelStudentBtn').addEventListener('click', hideStudentModal);
+            
+            // Payment management
+            document.getElementById('paymentForm').addEventListener('submit', savePaymentForm);
+            document.getElementById('cancelPaymentBtn').addEventListener('click', hidePaymentModal);
+            
+            // Close modals on outside click
+            document.addEventListener('click', function(event) {
+                if (event.target.classList.contains('modal')) {
+                    hideAllModals();
+                }
+            });
+        }
+        
+        // Lesson Management
+        function showLessonModal(lessonId = null) {
+            currentLessonId = lessonId;
+            updateStudentSelectOptions();
+            
+            if (lessonId) {
+                const lesson = appData.lessons.find(l => l.id === lessonId);
+                if (lesson) {
+                    document.getElementById('lessonStudent').value = lesson.studentId;
+                    document.getElementById('lessonDate').value = lesson.date;
+                    document.getElementById('lessonTime').value = lesson.time;
+                    document.getElementById('lessonStatus').value = lesson.status;
+                    document.getElementById('lessonNotes').value = lesson.notes || '';
+                    document.getElementById('deleteLessonBtn').style.display = 'block';
+                }
+            } else {
+                document.getElementById('lessonForm').reset();
+                document.getElementById('deleteLessonBtn').style.display = 'none';
+            }
+            
+            document.getElementById('lessonModal').classList.add('active');
+        }
+        
+        function hideLessonModal() {
+            document.getElementById('lessonModal').classList.remove('active');
+            currentLessonId = null;
+        }
+        
+        function saveLessonForm(event) {
+            event.preventDefault();
+            
+            const studentId = parseInt(document.getElementById('lessonStudent').value);
+            const date = document.getElementById('lessonDate').value;
+            const time = document.getElementById('lessonTime').value;
+            const status = document.getElementById('lessonStatus').value;
+            const notes = document.getElementById('lessonNotes').value;
+            
+            const student = appData.students.find(s => s.id === studentId);
+            if (!student) {
+                alert('Пожалуйста, выберите ученика');
+                return;
+            }
+            
+            const lessonData = {
+                id: currentLessonId || Date.now(),
+                studentId: studentId,
+                studentName: student.name,
+                date: date,
+                time: time,
+                status: status,
+                notes: notes
+            };
+            
+            if (currentLessonId) {
+                // Update existing lesson
+                const index = appData.lessons.findIndex(l => l.id === currentLessonId);
+                appData.lessons[index] = lessonData;
+            } else {
+                // Add new lesson
+                appData.lessons.push(lessonData);
+            }
+            
+            updateCalendarEvents();
+            hideLessonModal();
+        }
+        
+        function editLesson(lessonId) {
+            showLessonModal(parseInt(lessonId));
+        }
+        
+        function deleteLesson() {
+            if (currentLessonId && confirm('Вы уверены, что хотите удалить это занятие?')) {
+                appData.lessons = appData.lessons.filter(l => l.id !== currentLessonId);
+                updateCalendarEvents();
+                hideLessonModal();
+            }
+        }
+        
+        function updateLessonDateTime(lessonId, newDateTime) {
+            const lesson = appData.lessons.find(l => l.id === parseInt(lessonId));
+            if (lesson) {
+                lesson.date = newDateTime.toISOString().split('T')[0];
+                lesson.time = newDateTime.toTimeString().split(' ')[0].substring(0, 5);
+            }
+        }
+        
+        function updateCalendarEvents() {
+            const events = appData.lessons.map(lesson => ({
+                id: lesson.id,
+                title: lesson.studentName,
+                start: lesson.date + 'T' + lesson.time,
+                backgroundColor: getStatusColor(lesson.status),
+                borderColor: getStatusColor(lesson.status),
+                textColor: 'white'
+            }));
+            
+            calendar.removeAllEvents();
+            calendar.addEventSource(events);
+        }
+        
+        function getStatusColor(status) {
+            switch (status) {
+                case 'completed': return '#10b981'; // green
+                case 'scheduled': return '#f59e0b'; // yellow
+                case 'cancelled': return '#ef4444'; // red
+                default: return '#6b7280'; // gray
+            }
+        }
+        
+        // Student Management
+        function showStudentModal(studentId = null) {
+            currentStudentId = studentId;
+            
+            if (studentId) {
+                const student = appData.students.find(s => s.id === studentId);
+                if (student) {
+                    document.getElementById('studentName').value = student.name;
+                    document.getElementById('studentContact').value = student.contact;
+                    document.getElementById('studentRate').value = student.rate;
+                    document.getElementById('studentPaidLessons').value = student.paidLessons;
+                }
+            } else {
+                document.getElementById('studentForm').reset();
+            }
+            
+            document.getElementById('studentModal').classList.add('active');
+        }
+        
+        function hideStudentModal() {
+            document.getElementById('studentModal').classList.remove('active');
+            currentStudentId = null;
+        }
+        
+        function saveStudentForm(event) {
+            event.preventDefault();
+            
+            const name = document.getElementById('studentName').value;
+            const contact = document.getElementById('studentContact').value;
+            const rate = parseFloat(document.getElementById('studentRate').value) || 0;
+            const paidLessons = parseInt(document.getElementById('studentPaidLessons').value) || 0;
+            
+            const studentData = {
+                id: currentStudentId || Date.now(),
+                name: name,
+                contact: contact,
+                rate: rate,
+                paidLessons: paidLessons
+            };
+            
+            if (currentStudentId) {
+                // Update existing student
+                const index = appData.students.findIndex(s => s.id === currentStudentId);
+                appData.students[index] = studentData;
+            } else {
+                // Add new student
+                appData.students.push(studentData);
+            }
+            
+            studentsTable.setData(appData.students);
+            updateStudentSelectOptions();
+            updatePaymentsTable();
+            updatePaymentNotifications();
+            hideStudentModal();
+        }
+        
+        function deleteStudent(studentId) {
+            if (confirm('Вы уверены, что хотите удалить этого ученика?')) {
+                appData.students = appData.students.filter(s => s.id !== studentId);
+                appData.lessons = appData.lessons.filter(l => l.studentId !== studentId);
+                
+                studentsTable.setData(appData.students);
+                updateStudentSelectOptions();
+                updateCalendarEvents();
+                updatePaymentsTable();
+                updatePaymentNotifications();
+            }
+        }
+        
+        function updateStudentSelectOptions() {
+            const select = document.getElementById('lessonStudent');
+            select.innerHTML = '<option value="">Выберите ученика</option>';
+            
+            appData.students.forEach(student => {
+                const option = document.createElement('option');
+                option.value = student.id;
+                option.textContent = student.name;
+                select.appendChild(option);
+            });
+        }
+        
+        // Payment Management
+        function addPayment(studentId) {
+            currentPaymentStudentId = studentId;
+            const student = appData.students.find(s => s.id === studentId);
+            if (student) {
+                document.getElementById('paymentLessons').value = '';
+                document.getElementById('paymentAmount').value = '';
+                document.getElementById('paymentModal').classList.add('active');
+            }
+        }
+        
+        function hidePaymentModal() {
+            document.getElementById('paymentModal').classList.remove('active');
+            currentPaymentStudentId = null;
+        }
+        
+        function savePaymentForm(event) {
+            event.preventDefault();
+            
+            const lessons = parseInt(document.getElementById('paymentLessons').value);
+            const amount = parseFloat(document.getElementById('paymentAmount').value);
+            
+            const student = appData.students.find(s => s.id === currentPaymentStudentId);
+            if (student) {
+                student.paidLessons += lessons;
+                
+                const payment = {
+                    id: Date.now(),
+                    studentId: currentPaymentStudentId,
+                    studentName: student.name,
+                    lessons: lessons,
+                    amount: amount,
+                    date: new Date().toISOString().split('T')[0]
+                };
+                
+                appData.payments.push(payment);
+                
+                studentsTable.setData(appData.students);
+                updatePaymentsTable();
+                updatePaymentNotifications();
+                hidePaymentModal();
+            }
+        }
+        
+        function updatePaymentsTable() {
+            const paymentData = appData.students.map(student => ({
+                studentId: student.id,
+                studentName: student.name,
+                paidLessons: student.paidLessons,
+                status: student.paidLessons < 2 ? 'Требуется оплата' : 'Оплачено'
+            }));
+            
+            paymentsTable.setData(paymentData);
+        }
+        
+        function updatePaymentNotifications() {
+            const notificationsContainer = document.getElementById('payment-notifications');
+            notificationsContainer.innerHTML = '';
+            
+            const lowBalanceStudents = appData.students.filter(s => s.paidLessons < 2);
+            
+            if (lowBalanceStudents.length > 0) {
+                const notification = document.createElement('div');
+                notification.className = 'notification bg-red-100 border border-red-300 text-red-700 px-4 py-3 rounded-md mb-4';
+                notification.innerHTML = `
+                    <strong>Внимание!</strong> У следующих учеников заканчиваются оплаченные занятия:
+                    <ul class="mt-2 list-disc list-inside">
+                        ${lowBalanceStudents.map(s => `<li>${s.name} - осталось ${s.paidLessons} занятий</li>`).join('')}
+                    </ul>
+                `;
+                notificationsContainer.appendChild(notification);
+            }
+        }
+        
+        // Data Management
+        function saveData() {
+            const dataStr = JSON.stringify(appData, null, 2);
+            const dataBlob = new Blob([dataStr], {type: 'application/json'});
+            const url = URL.createObjectURL(dataBlob);
+            
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = 'tutoring_data.json';
+            link.click();
+            
+            URL.revokeObjectURL(url);
+        }
+        
+        async function loadData(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            try {
+                const text = await file.text();
+                const data = JSON.parse(text);
+                
+                appData = data;
+                
+                // Update all tables and calendar
+                studentsTable.setData(appData.students);
+                updateStudentSelectOptions();
+                updateCalendarEvents();
+                updatePaymentsTable();
+                updatePaymentNotifications();
+                
+                alert('Данные успешно загружены');
+            } catch (error) {
+                alert('Ошибка при загрузке данных: ' + error.message);
+            }
+        }
+        
+        function exportToExcel() {
+            const wb = XLSX.utils.book_new();
+            
+            // Students sheet
+            const studentsData = appData.students.map(student => ({
+                'Имя': student.name,
+                'Контакты': student.contact,
+                'Стоимость занятия': student.rate,
+                'Оплаченные занятия': student.paidLessons
+            }));
+            const studentsWs = XLSX.utils.json_to_sheet(studentsData);
+            XLSX.utils.book_append_sheet(wb, studentsWs, 'Ученики');
+            
+            // Payments sheet
+            const paymentsData = appData.payments.map(payment => ({
+                'Ученик': payment.studentName,
+                'Количество занятий': payment.lessons,
+                'Сумма': payment.amount,
+                'Дата': payment.date
+            }));
+            const paymentsWs = XLSX.utils.json_to_sheet(paymentsData);
+            XLSX.utils.book_append_sheet(wb, paymentsWs, 'Оплаты');
+            
+            // Lessons sheet
+            const lessonsData = appData.lessons.map(lesson => ({
+                'Ученик': lesson.studentName,
+                'Дата': lesson.date,
+                'Время': lesson.time,
+                'Статус': lesson.status === 'completed' ? 'Проведено' : 
+                         lesson.status === 'scheduled' ? 'Запланировано' : 'Отменено',
+                'Заметки': lesson.notes || ''
+            }));
+            const lessonsWs = XLSX.utils.json_to_sheet(lessonsData);
+            XLSX.utils.book_append_sheet(wb, lessonsWs, 'Занятия');
+            
+            XLSX.writeFile(wb, 'tutoring_report.xlsx');
+        }
+        
+        // Utility Functions
+        function hideAllModals() {
+            document.getElementById('lessonModal').classList.remove('active');
+            document.getElementById('studentModal').classList.remove('active');
+            document.getElementById('paymentModal').classList.remove('active');
+        }
+    </script>
+</body>
+</html>
